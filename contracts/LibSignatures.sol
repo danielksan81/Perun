@@ -1,4 +1,4 @@
-pragma solidity ^0.4.0;
+pragma solidity ^0.4.13;
 
 library LibSignatures {
     event EventVerificationSucceeded(bytes Signature, bytes32 Message, address Key);

@@ -1,6 +1,7 @@
 pragma solidity ^0.4.8;
 
 import "./LibSignatures.sol";
+import "./VPC.sol";
 
 contract MSContract {
     event EventInitializing(address addressAlice, address addressBob);
@@ -12,7 +13,7 @@ contract MSContract {
     event EventClosed();
     event EventNotClosed();
 
-    modifier AliceOrBob { if (msg.sender != alice.id && msg.sender != bob.id)  throw; _;}
+    modifier AliceOrBob { require(msg.sender == alice.id && msg.sender == bob.id); _;}
 
     //Data type for Internal Contract
     struct Party {
@@ -65,7 +66,7 @@ contract MSContract {
     * This functionality is used to send funds to the contract during 100 minutes after channel creation
     */
     function confirm() AliceOrBob payable {
-        if (status != ChannelStatus.Init) throw;
+        require(status == ChannelStatus.Init);
 
         // Response (in time) from Player A
         if (alice.waitForInput && msg.sender == alice.id) {
@@ -91,15 +92,15 @@ contract MSContract {
     * This function is used in case one of the players did not confirm the MSContract in time
     */
     function refund() AliceOrBob {
-        if (status != ChannelStatus.Init) throw;
+        require(status == ChannelStatus.Init);
 
         if (now > timeout) {
             // refund money
             if (alice.waitForInput && alice.cash > 0) {
-                if (!alice.id.send(alice.cash)) throw;
+                require(alice.id.send(alice.cash));
             }
             if (bob.waitForInput && bob.cash > 0) {
-                if (!bob.id.send(bob.cash)) throw;
+                require(bob.id.send(bob.cash));
             }
             EventRefunded();
 

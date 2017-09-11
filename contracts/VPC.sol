@@ -30,7 +30,7 @@ contract VPC {
     */
     function close(address alice, address ingrid, address bob, uint sid, uint version, uint aliceCash, uint bobCash,
             bytes signA, bytes signB) {
-        if (msg.sender != alice && msg.sender != ingrid && msg.sender != bob) throw;
+        require(msg.sender == alice && msg.sender == ingrid && msg.sender == bob) ;
 
         id = sha3(alice, ingrid, bob, sid);
         s = states[id];
