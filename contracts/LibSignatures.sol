@@ -1,4 +1,4 @@
-pragma solidity ^0.4.13;
+pragma solidity ^0.4.18;
 
 library LibSignatures {
     event EventVerificationSucceeded(bytes Signature, bytes32 Message, address Key);
@@ -8,9 +8,9 @@ library LibSignatures {
     * This functionality verifies ECDSA signatures
     * @returns true if the _signature of _address over _message is correct
     */
-    function verify(address _address, bytes32 _message, bytes _signature) constant returns(bool) {
+    function verify(address _address, bytes32 _message, bytes _signature) public returns(bool) {
         if (_signature.length != 65)
-            return (false);
+            return false;
 
         bytes32 r;
         bytes32 s;
@@ -26,16 +26,16 @@ library LibSignatures {
             v += 27;
 
         if (v != 27 && v != 28)
-            return (false);
+            return false;
 
         address pk = ecrecover(_message, v, r, s);
 
         if (pk == _address) {
             EventVerificationSucceeded(_signature, _message, pk);
-            return (true);
+            return true;
         } else {
             EventVerificationFailed(_signature, _message, pk);
-            return (false);
+            return false;
         }
     }
 }

@@ -1,10 +1,13 @@
-pragma solidity ^0.4.8;
+pragma solidity ^0.4.16;
 
 import "./LibSignatures.sol";
 
 contract VPC {
     event EventVpcClosing(bytes32 indexed _id);
     event EventVpcClosed(bytes32 indexed _id, uint cashAlice, uint cashBob);
+
+    using LibSignatures for LibSignatures;
+    LibSignatures lib = LibSignatures(0x0000000000000000000000000000000000000000); // replace with deployed address
 
     // datatype for virtual state
     struct VpcState {
@@ -29,16 +32,15 @@ contract VPC {
     * It is used to establish a final distribution of funds in the virtual channel
     */
     function close(address alice, address ingrid, address bob, uint sid, uint version, uint aliceCash, uint bobCash,
-            bytes signA, bytes signB) {
-        require(msg.sender == alice && msg.sender == ingrid && msg.sender == bob) ;
+            bytes signA, bytes signB) public {
+        require(msg.sender == alice || msg.sender == ingrid || msg.sender == bob);
 
-        id = sha3(alice, ingrid, bob, sid);
+        id = keccak256(alice, ingrid, bob, sid);
         s = states[id];
         
         // verfiy signatures
-        bytes32 msgHash = sha3(id, version, aliceCash, bobCash);
-        if (!LibSignatures.verify(alice, msgHash, signA)) return;
-        if (!LibSignatures.verify(bob, msgHash, signB)) return;
+        bytes32 msgHash = keccak256(id, version, aliceCash, bobCash);
+        require(lib.verify(alice, msgHash, signA) && lib.verify(bob, msgHash, signB));
 
         // if such a virtual channel state does not exist yet, create one
         if (!s.init) {
@@ -74,8 +76,8 @@ contract VPC {
     *   returns (false, 0, 0) if such a channel does not exist or is neither closed nor timeouted, or
     *   return (true, a, b) otherwise, where (a, b) is a final distribution of funds in this channel
     */
-    function finalize(address alice, address ingrid, address bob, uint sid) returns (bool, uint, uint) {
-        id = sha3(alice, ingrid, bob, sid);
+    function finalize(address alice, address ingrid, address bob, uint sid) public returns (bool, uint, uint) {
+        id = keccak256(alice, ingrid, bob, sid);
         if (states[id].init) {
             if (states[id].extendedValidity < now) {
                 states[id].open = false;

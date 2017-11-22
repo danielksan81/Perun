@@ -1,4 +1,4 @@
-pragma solidity ^0.4.8;
+pragma solidity ^0.4.16;
 
 import "./LibSignatures.sol";
 import "./VPC.sol";
@@ -92,22 +92,19 @@ contract MSContract {
     * This function is used in case one of the players did not confirm the MSContract in time
     */
     function refund() AliceOrBob {
-        require(status == ChannelStatus.Init);
+        require(status == ChannelStatus.Init && now > timeout);
 
-        if (now > timeout) {
-            // refund money
-            if (alice.waitForInput && alice.cash > 0) {
-                require(alice.id.send(alice.cash));
-            }
-            if (bob.waitForInput && bob.cash > 0) {
-                require(bob.id.send(bob.cash));
-            }
-            EventRefunded();
-
-            // terminate contract
-            selfdestruct(alice.id);
-            return;
+        // refund money
+        if (alice.waitForInput && alice.cash > 0) {
+            require(alice.id.send(alice.cash));
         }
+        if (bob.waitForInput && bob.cash > 0) {
+            require(bob.id.send(bob.cash));
+        }
+        EventRefunded();
+
+        // terminate contract
+        selfdestruct(alice.id);
     }
 
     /*
@@ -123,12 +120,13 @@ contract MSContract {
     function stateRegister
             (address _vpc, uint _sid, uint _blockedA, uint _blockedB, uint _version, bytes sigA, bytes sigB) AliceOrBob {
         // check if the parties have enough funds in the contract
-        if (alice.cash < _blockedA || bob.cash < _blockedB) return;
+        require((alice.cash > _blockedA || bob.cash > _blockedB)
+               && _vpc != 0);
 
         // verfify correctness of the signatures
         bytes32 msgHash = sha3(_vpc, _sid, _blockedA, _blockedB, _version);
-        if (!LibSignatures.verify(alice.id, msgHash, sigA)) return;
-        if (!LibSignatures.verify(bob.id, msgHash, sigB)) return;
+        require(LibSignatures.verify(alice.id, msgHash, sigA)
+               && LibSignatures.verify(bob.id, msgHash, sigB));
 
         // execute on first call
         if (status == ChannelStatus.Open || status == ChannelStatus.WaitingToClose) {
@@ -169,17 +167,14 @@ contract MSContract {
     * This function is used in case one of the players did not confirm the state
     */
     function finalizeRegister() AliceOrBob {
-        if (status != ChannelStatus.InConflict) return;
+        require(status == ChannelStatus.InConflict && now > timeout);
 
-        // execute if timeout passed
-        if (now > timeout) {
-            status = ChannelStatus.Settled;
-            alice.waitForInput = false;
-            bob.waitForInput = false;
-            alice.cash -= c.blockedA;
-            bob.cash -= c.blockedB;
-            EventStateRegistered(c.blockedA, c.blockedB);
-        }
+        status = ChannelStatus.Settled;
+        alice.waitForInput = false;
+        bob.waitForInput = false;
+        alice.cash -= c.blockedA;
+        bob.cash -= c.blockedB;
+        EventStateRegistered(c.blockedA, c.blockedB);
     }
 
     /*
@@ -187,7 +182,7 @@ contract MSContract {
     * The function takes as input addresses of the parties of the virtual channel
     */
     function execute(address _alice, address _ingrid, address _bob) AliceOrBob {
-        if (status != ChannelStatus.Settled) return;
+        require(status == ChannelStatus.Settled);
 
         // call virtual payment machine on the params
         var (s, a, b) = c.vpc.finalize(_alice, _ingrid, _bob, c.sid);
