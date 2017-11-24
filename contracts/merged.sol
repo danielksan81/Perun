@@ -1,8 +1,47 @@
-pragma solidity ^0.4.16;
+pragma solidity^0.4.16;
 
-import "./VPC.sol";
+contract Verifyer {
+    event EventVerificationSucceeded(bytes Signature, bytes32 Message, address Key);
+    event EventVerificationFailed(bytes Signature, bytes32 Message, address Key);
 
-contract MSContract {
+    /*
+    * This functionality verifies ECDSA signatures
+    * @returns true if the _signature of _address over _message is correct
+    */
+    function verify(address _address, bytes32 _message, bytes _signature) public returns(bool) {
+        if (_signature.length != 65)
+            return false;
+
+        bytes32 r;
+        bytes32 s;
+        uint8 v;
+
+        assembly {
+            r := mload(add(_signature, 32))
+            s := mload(add(_signature, 64))
+            v := byte(0, mload(add(_signature, 96)))
+        }
+
+        if (v < 27)
+            v += 27;
+
+        if (v != 27 && v != 28)
+            return false;
+
+        address pk = ecrecover(_message, v, r, s);
+
+        if (pk == _address) {
+            EventVerificationSucceeded(_signature, _message, pk);
+            return true;
+        } else {
+            EventVerificationFailed(_signature, _message, pk);
+            return false;
+        }
+    }
+}
+
+
+contract MSContract is Verifyer {
     event EventInitializing(address addressAlice, address addressBob);
     event EventInitialized(uint cashAlice, uint cashBob);
     event EventRefunded();
@@ -11,6 +50,7 @@ contract MSContract {
     event EventClosing();
     event EventClosed();
     event EventNotClosed();
+    event Debug();
 
     modifier AliceOrBob { require(msg.sender == alice.id || msg.sender == bob.id); _;}
 
@@ -103,7 +143,7 @@ contract MSContract {
         EventRefunded();
 
         // terminate contract
-        selfdestruct(alice.id); // if bob put in more funds those get transfered to alice
+        selfdestruct(alice.id);
     }
 
     /*
@@ -116,7 +156,7 @@ contract MSContract {
                  version parameter: version,
     *            signature parameter (from A and B): sigA, sigB
     */
-    function stateRegister(address _vpc, // vulnerable?
+    function stateRegister(address _vpc, 
                            uint _sid, 
                            uint _blockedA, 
                            uint _blockedB, 
@@ -124,13 +164,13 @@ contract MSContract {
                            bytes sigA, 
                            bytes sigB) public AliceOrBob {
         // check if the parties have enough funds in the contract
-        require(alice.cash >= _blockedA && bob.cash >= _blockedB);
+        require((alice.cash > _blockedA || bob.cash > _blockedB));
 
         // verfify correctness of the signatures
         bytes32 msgHash = keccak256(_vpc, _sid, _blockedA, _blockedB, _version);
-        require(LibSignatures.verify(alice.id, msgHash, sigA)
-                && LibSignatures.verify(bob.id, msgHash, sigB));
-        
+        require(verify(alice.id, msgHash, sigA)
+               && verify(bob.id, msgHash, sigB));
+
         // execute on first call
         if (status == ChannelStatus.Open || status == ChannelStatus.WaitingToClose) {
             status = ChannelStatus.InConflict;
@@ -270,3 +310,91 @@ contract MSContract {
     }
 }
 
+
+contract VPC is Verifyer {
+    event EventVpcClosing(bytes32 indexed _id);
+    event EventVpcClosed(bytes32 indexed _id, uint cashAlice, uint cashBob);
+
+    // datatype for virtual state
+    struct VpcState {
+        uint AliceCash;
+        uint BobCash;
+        uint seqNo;
+        uint validity;
+        uint extendedValidity;
+        bool open;
+        bool waitingForAlice;
+        bool waitingForBob;
+        bool init;
+    }
+
+    // datatype for virtual state
+    mapping (bytes32 => VpcState) public states;
+    VpcState public s;
+    bytes32 public id;
+
+    /*
+    * This function is called by any participant of the virtual channel
+    * It is used to establish a final distribution of funds in the virtual channel
+    */
+    function close(address alice, address ingrid, address bob, uint sid, uint version, uint aliceCash, uint bobCash,
+            bytes signA, bytes signB) public {
+        require(msg.sender == alice || msg.sender == ingrid || msg.sender == bob);
+
+        id = keccak256(alice, ingrid, bob, sid);
+        s = states[id];
+        
+        // verfiy signatures
+        bytes32 msgHash = keccak256(id, version, aliceCash, bobCash);
+        require(verify(alice, msgHash, signA) && verify(bob, msgHash, signB));
+
+        // if such a virtual channel state does not exist yet, create one
+        if (!s.init) {
+            uint validity = now + 10 minutes;
+            uint extendedValidity = validity + 10 minutes;
+            s = VpcState(aliceCash, bobCash, version, validity, extendedValidity, true, true, true, true);
+            EventVpcClosing(id);
+        }
+
+        // if channel is closed or timeouted do nothing
+        if (!s.open || s.extendedValidity < now) return;
+        if ((s.validity < now) && (msg.sender == alice || msg.sender == bob)) return;
+ 
+        // check if the message is from alice or bob
+        if (msg.sender == alice) s.waitingForAlice = false;
+        if (msg.sender == bob) s.waitingForBob = false;
+
+        // set values of Internal State
+        if (version > s.seqNo) {
+            s = VpcState(aliceCash, bobCash, version, s.validity, s.extendedValidity, true, s.waitingForAlice, s.waitingForBob, true);
+        }
+
+        // execute if both players responded
+        if (!s.waitingForAlice && !s.waitingForBob) {
+            s.open = false;
+            EventVpcClosed(id, s.AliceCash, s.BobCash);
+        }
+        states[id] = s;
+    }
+
+    /*
+    * For the virtual channel with id = (alice, ingrid, bob, sid) this function:
+    *   returns (false, 0, 0) if such a channel does not exist or is neither closed nor timeouted, or
+    *   return (true, a, b) otherwise, where (a, b) is a final distribution of funds in this channel
+    */
+    function finalize(address alice, address ingrid, address bob, uint sid) public returns (bool, uint, uint) {
+        id = keccak256(alice, ingrid, bob, sid);
+        if (states[id].init) {
+            if (states[id].extendedValidity < now) {
+                states[id].open = false;
+                EventVpcClosed(id, states[id].AliceCash, states[id].BobCash);
+            }
+            if (states[id].open)
+                return (false, 0, 0);
+            else
+                return (true, states[id].AliceCash, states[id].BobCash);
+        }
+        else
+            return (false, 0, 0);
+    }
+}

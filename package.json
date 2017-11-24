@@ -1,0 +1,10 @@
+{
+  "name": "perun",
+  "version": "0.0.1",
+  "description": "dwa",
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "web3": "^0.18.4"
+  }
+}

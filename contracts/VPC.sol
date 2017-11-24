@@ -6,9 +6,6 @@ contract VPC {
     event EventVpcClosing(bytes32 indexed _id);
     event EventVpcClosed(bytes32 indexed _id, uint cashAlice, uint cashBob);
 
-    using LibSignatures for LibSignatures;
-    LibSignatures lib = LibSignatures(0x0000000000000000000000000000000000000000); // replace with deployed address
-
     // datatype for virtual state
     struct VpcState {
         uint AliceCash;
@@ -40,7 +37,7 @@ contract VPC {
         
         // verfiy signatures
         bytes32 msgHash = keccak256(id, version, aliceCash, bobCash);
-        require(lib.verify(alice, msgHash, signA) && lib.verify(bob, msgHash, signB));
+        require(LibSignatures.verify(alice, msgHash, signA) && LibSignatures.verify(bob, msgHash, signB));
 
         // if such a virtual channel state does not exist yet, create one
         if (!s.init) {
