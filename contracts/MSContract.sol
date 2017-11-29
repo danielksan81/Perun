@@ -103,7 +103,7 @@ contract MSContract {
         EventRefunded();
 
         // terminate contract
-        selfdestruct(alice.id); // if bob put in more funds those get transfered to alice
+        selfdestruct(alice.id); 
     }
 
     /*
@@ -128,8 +128,10 @@ contract MSContract {
 
         // verfify correctness of the signatures
         bytes32 msgHash = keccak256(_vpc, _sid, _blockedA, _blockedB, _version);
-        require(LibSignatures.verify(alice.id, msgHash, sigA)
-                && LibSignatures.verify(bob.id, msgHash, sigB));
+        bytes32 gethPrefixHash = keccak256("\u0019Ethereum Signed Message:\n32", msgHash);
+
+        require(LibSignatures.verify(alice.id, gethPrefixHash, sigA)
+                && LibSignatures.verify(bob.id, gethPrefixHash, sigB));
         
         // execute on first call
         if (status == ChannelStatus.Open || status == ChannelStatus.WaitingToClose) {
@@ -185,12 +187,11 @@ contract MSContract {
     * The function takes as input addresses of the parties of the virtual channel
     */
     function execute(address _alice, 
-                     address _ingrid, 
                      address _bob) public AliceOrBob {
         require(status == ChannelStatus.Settled);
 
         // call virtual payment machine on the params
-        var (s, a, b) = c.vpc.finalize(_alice, _ingrid, _bob, c.sid);
+        var (s, a, b) = c.vpc.finalize(_alice, _bob, c.sid);
 
         // check if the result makes sense
         if (!s) return;
@@ -243,8 +244,8 @@ contract MSContract {
 
             // terminate channel
             if (alice.cash == 0 && bob.cash == 0) {
-                selfdestruct(alice.id);
                 EventClosed();
+                selfdestruct(alice.id);
             }
         }
     }
@@ -263,8 +264,8 @@ contract MSContract {
 
             // terminate channel
             if (alice.cash == 0 && bob.cash == 0) {
-                selfdestruct(alice.id);
                 EventClosed();
+                selfdestruct(alice.id);
             }
         }
     }

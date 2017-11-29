@@ -5,6 +5,9 @@ import "./LibSignatures.sol";
 contract VPC {
     event EventVpcClosing(bytes32 indexed _id);
     event EventVpcClosed(bytes32 indexed _id, uint cashAlice, uint cashBob);
+    event Debug(bytes32 hash);
+    event DebugU(uint msg);
+    event DebugS(string msg);
 
     // datatype for virtual state
     struct VpcState {
@@ -28,16 +31,18 @@ contract VPC {
     * This function is called by any participant of the virtual channel
     * It is used to establish a final distribution of funds in the virtual channel
     */
-    function close(address alice, address ingrid, address bob, uint sid, uint version, uint aliceCash, uint bobCash,
+    function close(address alice, address bob, uint sid, uint version, uint aliceCash, uint bobCash,
             bytes signA, bytes signB) public {
-        require(msg.sender == alice || msg.sender == ingrid || msg.sender == bob);
+        require(msg.sender == alice || msg.sender == bob);
 
-        id = keccak256(alice, ingrid, bob, sid);
+        id = keccak256(alice, bob, sid);
         s = states[id];
         
         // verfiy signatures
         bytes32 msgHash = keccak256(id, version, aliceCash, bobCash);
-        require(LibSignatures.verify(alice, msgHash, signA) && LibSignatures.verify(bob, msgHash, signB));
+        bytes32 gethPrefixHash = keccak256("\u0019Ethereum Signed Message:\n32", msgHash);
+        require(LibSignatures.verify(alice, gethPrefixHash, signA) 
+                 && LibSignatures.verify(bob, gethPrefixHash, signB));
 
         // if such a virtual channel state does not exist yet, create one
         if (!s.init) {
@@ -57,7 +62,8 @@ contract VPC {
 
         // set values of Internal State
         if (version > s.seqNo) {
-            s = VpcState(aliceCash, bobCash, version, s.validity, s.extendedValidity, true, s.waitingForAlice, s.waitingForBob, true);
+            s = VpcState(aliceCash, bobCash, version, s.validity, s.extendedValidity, 
+                         true, s.waitingForAlice, s.waitingForBob, true);
         }
 
         // execute if both players responded
@@ -73,8 +79,8 @@ contract VPC {
     *   returns (false, 0, 0) if such a channel does not exist or is neither closed nor timeouted, or
     *   return (true, a, b) otherwise, where (a, b) is a final distribution of funds in this channel
     */
-    function finalize(address alice, address ingrid, address bob, uint sid) public returns (bool, uint, uint) {
-        id = keccak256(alice, ingrid, bob, sid);
+    function finalize(address alice, address bob, uint sid) public returns (bool, uint, uint) {
+        id = keccak256(alice, bob, sid);
         if (states[id].init) {
             if (states[id].extendedValidity < now) {
                 states[id].open = false;
