@@ -1,0 +1,995 @@
+openapi: 3.0.0
+# Added by API Auto Mocking Plugin
+servers:
+  - description: SwaggerHub API Auto Mocking
+    url: https://virtserver.swaggerhub.com/Perun/Perun_API/0.0.1
+
+info:
+  description: |
+    This is the Perun API description.
+  version: "0.0.1"
+  title: Perun API
+  contact:
+    email: info@perun.network
+  license:
+    name: GNU Lesser General Public License
+    url: 'http://www.gnu.org/licenses/'
+
+tags:
+  - name: channels
+    description: Access to different channels
+    externalDocs:
+      description: Find out more
+      url: 'https://eprint.iacr.org/2017/635.pdf'
+  - name: settings
+    description: Modify Settings
+
+paths:
+
+  ##############################################################################################################################
+  ### General Channel interaction 
+  ##############################################################################################################################
+
+  /channels:
+    get:
+      tags:
+        - channels
+      summary: Get all registered Channels
+      description: Returns all actice channels
+      operationId: getAllChannels
+      responses:
+        '200':
+          description: successful operation
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Channel'
+        '400':
+          description: No channels available
+    post:
+      tags:
+        - channels
+      summary: Create a new Channel
+      operationId: createNewChannel
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uint256
+                    description: ID of the created channel. (Concat both user addresses  + counter)
+          links:
+            GetChannelById:
+              operationId: getChannel
+              parameters:
+                channelId: '$response.body#/id'
+                description: >
+                  The `id` value returned in the response can be used as the `channelId` 
+                  parameter in `GET /channels/{channelId}`
+        '405':
+          description: Invalid input
+      #security:
+      #  - petstore_auth:
+      #      - 'write:pets'
+      #      - 'read:pets'
+      requestBody:
+        $ref: '#/components/requestBodies/Channel'
+        
+  /channels/subscribe:
+    post:
+      summary: Add subsciption for new channels
+      description: Receive updates for new channel created for my address
+      operationId: createNewChannelsSubscription
+      tags:
+        - channels
+      requestBody:
+        $ref: '#/components/requestBodies/SubscribeToChannelUpdates'
+      responses:
+        '201':
+          description: Subscription created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  subscriberId:
+                    type: string
+                    example: AAA-123-BBB-456 
+          links:
+            unsubscripeOp:
+              operationId: deleteNewChannelsSubscription
+              parameters:
+                Id: '$response.body#/subscriberId'
+        '405':
+          description: Invalid input
+      callbacks:
+        channelCreated: # Event name
+          '{$request.body#/callbackUrl}': # The callback URL, refers to the passed URL
+            post:
+              requestBody: # Contents of the callback message
+                $ref: '#/components/requestBodies/ChannelUpdateCallback'
+                links:
+                  GetChannelById:
+                    operationId: getChannel
+                    parameters:
+                      channelId: '$request.body#/channelId'
+                      description: >
+                        The `channelId` value posted in the callback
+                        can be used as the `channelId` parameter in 
+                        `GET /channels/{channelId}`
+              responses: # Expected responses to the callback message
+                '200':
+                  description: Your server returns this code if it accepts the callback
+    
+  /channels/unsubscribe:
+    post: 
+      parameters:
+        - name: Id
+          in: query
+          schema:
+            type: string
+      summary: Remove subsciption for new channels
+      operationId: deleteNewChannelsSubscription
+      tags:
+        - channels
+      responses:
+        '201':
+          description: Subscription cancelled
+        '405':
+          description: Invalid input
+          
+  ##############################################################################################################################
+  ### General Channel interaction end
+  ##############################################################################################################################
+          
+
+  ##############################################################################################################################
+  ### Setting Up Master Channel 
+  ##############################################################################################################################        
+  
+  /channels/{channelId}:
+    get:
+      summary: Get channel by ID
+      tags:
+        - channels
+      operationId: getChannel
+      parameters: 
+        - in: path
+          name: channelId
+          required: true
+          schema:
+            type: string
+            format: uint256
+      responses:
+        '200':
+          description: A channel object
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Channel'
+        '404':
+          description: Channel not found
+  
+  /channels/{channelId}/confirm:
+    post:
+      summary: Confirm a channel
+      description: >
+        Confirms a channel to another party, this must happen before 
+        the timout of the channel is reached. This call must also contain
+        two valid URLs where all further Channel/Channel state updates are received.
+        The subscription will be automatically droped once all the channel gets removed.
+      operationId: confirmChannel
+      tags:
+        - channels
+      parameters: 
+        - in: path
+          name: channelId
+          required: true
+          schema:
+            type: string
+            format: uint256
+      requestBody:
+        $ref: '#/components/requestBodies/ConfirmChannel'
+      responses:
+        '201':
+          description: Subscription created
+        '405':
+          description: Invalid input
+      callbacks:
+        channelConfirmed: # Event name
+          '{$request.body#/channelUpdateUrl}': # The callback URL, refers to the passed URL
+            post:
+              requestBody: # Contents of the callback message
+                required: true
+                content:
+                  application/json:
+                    schema:
+                      $ref: '#/components/schemas/Channel'
+                      required:
+                        - Channel
+              responses: # Expected responses to the callback message
+                '200':
+                  description: Your server returns this code if it accepts the callback
+          
+          '{$request.body#/channelStateUpdateUrl}': # The callback URL, refers to the passed URL
+            post:
+              requestBody: # Contents of the callback message
+                required: true
+                content:
+                  application/json:
+                    schema:
+                      $ref: '#/components/schemas/ChannelState'
+                      required:
+                        - ChannelState
+              responses: # Expected responses to the callback message
+                '200':
+                  description: Your server returns this code if it accepts the callback
+                  
+  /channels/{channelId}/refund:
+    post:
+      summary: Refund a channel
+      description: >
+        This funcion is used if only one party confirms a channel. Can only be called after initial timeout.
+      operationId: refundChannel
+      tags:
+        - channels
+      parameters: 
+        - in: path
+          name: channelId
+          required: true
+          schema:
+            type: string
+            format: uint256
+      responses:
+        '201':
+          description: Channel refunded
+        '405':
+          description: Invalid input
+          
+
+  ##############################################################################################################################
+  ### Setting Up Master Channel end
+  ##############################################################################################################################        
+  
+  ##############################################################################################################################
+  ### Creating Virtual Payment Channel 
+  ##############################################################################################################################    
+  # technically you would not need to split these functions, however for a seperation
+  # of concerns, this is preferable. However, it can be removed.
+  /channels/{channelId}/proposeVPC:
+    post:
+      summary: Propose the first state for a VPC
+      description: >
+        This function is used to propose an initial state for a virtual payment contract 
+        (sid, blockedA, blockedB, version). Sid must be cryptographically sound randomly
+        choosen (i.e. SHA3(addrAlice, addrBob, nonce)). This will trigger a channel update event 
+        for the subscription generated in the confirm call. The state must be signed by the participant.
+      operationId: stateRegisterForChannel
+      tags:
+        - channels
+      parameters: 
+        - in: path
+          name: channelId
+          required: true
+          schema:
+            type: string
+            format: uint256
+      requestBody:
+        $ref: '#/components/requestBodies/ProposeStateRegisterForChannel'
+      responses:
+        '201':
+          description: State registered
+        '405':
+          description: Invalid input
+  
+    put:
+      summary: Confirm the proposed first state for a VPC
+      description: >
+        This function is used to confirm a proposes initial state for a virtual payment contract 
+        (sid, blockedA, blockedB, version). Sid must be cryptographically sound randomly
+        choosen (i.e. SHA3(addrAlice, addrBob, nonce)). This will trigger a channel update event 
+        for the subscription generated in the confirm call. The state must be signed by both participants.
+      operationId: confirmStateRegisterForChannel
+      tags:
+        - channels
+      parameters: 
+        - in: path
+          name: channelId
+          required: true
+          schema:
+            type: string
+            format: uint256
+      requestBody:
+        $ref: '#/components/requestBodies/ProposeStateRegisterForChannel'
+      responses:
+        '201':
+          description: State registered
+        '405':
+          description: Invalid input
+  
+  # technically you would not need to split these functions, however for a seperation
+  # of concerns, this is preferable. However, it can be removed.
+  /channels/{channelId}/stateRegister:
+    post:
+      summary: Register a state for the Channel
+      description: >
+        This function is used to create a virtual payment channel and registered the first state, 
+        generated with the proposeVPC functionallity, with the blockchain. This will trigger a 
+        channel update event for the subscription generated in the confirm call. This function
+        must be called first, the second call is a put. However they technically call the same function of the MSContract. 
+        The address of the VPC must be set beforhand in the settings.
+      operationId: stateRegisterForChannel
+      tags:
+        - channels
+      parameters: 
+        - in: path
+          name: channelId
+          required: true
+          schema:
+            type: string
+            format: uint256
+      requestBody:
+        $ref: '#/components/requestBodies/StateRegisterForChannel'
+      responses:
+        '201':
+          description: State registered
+        '405':
+          description: Invalid input
+          
+    put:
+      summary: Confirm a register state for the Channel
+      description: >
+        This function is used to confirm a virtual payment channel and registered the first state with the blockchain. 
+        This should trigger a channel update event for the subscription generated in the confirm call. The address of 
+        the VPC must be set beforhand in the settings.
+      operationId: confirmStateRegisterForChannel
+      tags:
+        - channels
+      parameters: 
+        - in: path
+          name: channelId
+          required: true
+          schema:
+            type: string
+            format: uint256
+      requestBody:
+        $ref: '#/components/requestBodies/StateRegisterForChannel'
+      responses:
+        '201':
+          description: State registered confirmed
+        '405':
+          description: Invalid input
+          
+          
+  /channels/{channelId}/finalizeRegister:
+    post:
+      summary: Finalize a state register for the Channel
+      description: >
+        This function is used when one party did not confirm to the channel.
+      operationId: finalizeStateRegisterForChannel
+      tags:
+        - channels
+      parameters: 
+        - in: path
+          name: channelId
+          required: true
+          schema:
+            type: string
+            format: uint256
+      responses:
+        '201':
+          description: State register finalized
+        '405':
+          description: Invalid input
+          
+          
+  ##############################################################################################################################
+  ### Creating Virtual Payment Channel 
+  ##############################################################################################################################       
+  
+  ##############################################################################################################################
+  ### Off-Chain communication
+  ##############################################################################################################################
+  /channels/{channelId}/{stateId}:
+    get:
+      summary: Get channel state
+      tags:
+        - channels
+      operationId: getChannelState
+      parameters: 
+        - in: path
+          name: channelId
+          required: true
+          schema:
+            type: string
+            format: uint256
+        - in: path
+          name: stateId
+          required: true
+          schema:
+            type: integer
+            format: uint
+      responses:
+        '200':
+          description: A channel state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChannelState'
+        '404':
+          description: Channel state not found
+          
+    post:
+      summary: Propose a new state
+      description: >
+        Propose a mew state to the corresponding party. This function is used
+        when a party wants to propose a new state. Only one Signature field must be
+        filled in. This will trigger a state update event for the subscription generated 
+        in the confirm call.
+      operationId: proposeChannelState
+      tags:
+        - channels
+      parameters: 
+        - in: path
+          name: channelId
+          required: true
+          schema:
+            type: string
+            format: uint256
+        - in: path
+          name: stateId
+          required: true
+          schema:
+            type: integer
+            format: uint
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChannelState'
+        required: true
+      responses:
+        '201':
+          description: New State proposed
+        '405':
+          description: Invalid input
+          
+    put:
+      summary: Confirm a new state
+      description: >
+        After examining a state, this function is used to confirm to the new channel state.
+        Both signature fields need to be filled in. This will trigger a channel update event
+        for the subscription generated in the confirm call.
+      operationId: confirmChannelState
+      tags:
+        - channels
+      parameters: 
+        - in: path
+          name: channelId
+          required: true
+          schema:
+            type: string
+            format: uint256
+        - in: path
+          name: stateId
+          required: true
+          schema:
+            type: integer
+            format: uint
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChannelState'
+        required: true
+      responses:
+        '201':
+          description: New State accepted
+        '405':
+          description: Invalid input
+          
+  ##############################################################################################################################
+  ### Off-Chain communication end
+  ##############################################################################################################################
+  
+  ##############################################################################################################################
+  ### Closing the virtual payment channel
+  ##############################################################################################################################
+  # technically you would not need to split these functions, however for a seperation
+  # of concerns, this is preferable. However, it can be removed.
+  /channels/{channelId}/closeVPC:
+    post:
+      summary: Close a VPC
+      description: >
+        This function is used when one party wants to close the channel. This
+        function calls the `close` function of the VPC. This function is also used
+        when a party wants to register a higher VPC version.
+      operationId: closeVPChannel
+      tags:
+        - channels
+      parameters: 
+        - in: path
+          name: channelId
+          required: true
+          schema:
+            type: string
+            format: uint256
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChannelState'
+      responses:
+        '201':
+          description: Close procedure started
+        '405':
+          description: Invalid input
+    
+    put:
+      summary: Confirm close a VPC
+      description: >
+        This function is used when one party wants to confirm the closing of channel. 
+        This function calls the `close` function of the VPC.
+      operationId: confirmCloseVPChannel
+      tags:
+        - channels
+      parameters: 
+        - in: path
+          name: channelId
+          required: true
+          schema:
+            type: string
+            format: uint256
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChannelState'
+      responses:
+        '201':
+          description: Close procedure confirmed
+        '405':
+          description: Invalid input
+          
+    delete:
+      summary: finalize close
+      description: >
+        After setteling the state with the VPC contract, delete the entire channel.
+        This function calls the `execute` function of the MSContract.
+      operationId: executeCloseVPChannel
+      tags:
+        - channels
+      parameters: 
+        - in: path
+          name: channelId
+          required: true
+          schema:
+            type: string
+            format: uint256
+      responses:
+        '201':
+          description: Channel deleted
+        '405':
+          description: Invalid input
+  
+  ##############################################################################################################################
+  ### Closing the virtual payment channel end
+  ##############################################################################################################################
+  
+  ##############################################################################################################################
+  ### Closing the master channel
+  ##############################################################################################################################
+  
+  /channels/{channelId}/close:
+    post:
+      summary: Close the master channel
+      description: >
+        This function is used when one party wants to close the master channel. This
+        is only possible when there is no internal contract present. This function
+        calls the `close`functionallity of the MSContract.
+      operationId: closeChannel
+      tags:
+        - channels
+      parameters: 
+        - in: path
+          name: channelId
+          required: true
+          schema:
+            type: string
+            format: uint256
+      responses:
+        '201':
+          description: Close procedure started
+        '405':
+          description: Invalid input
+          
+  /channels/{channelId}/finalizeClose:
+    post:
+      summary: Finalize close of the master channel
+      description: >
+        This function is used when one party did not respond to the close call and
+        the timeout ran out. This function calls the `close`functionallity of the MSContract.
+      operationId: closeChannel
+      tags:
+        - channels
+      parameters: 
+        - in: path
+          name: channelId
+          required: true
+          schema:
+            type: string
+            format: uint256
+      responses:
+        '201':
+          description: Channel deleted
+        '405':
+          description: Invalid input
+
+  ##############################################################################################################################
+  ### Closing the master channel end
+  ##############################################################################################################################
+  
+  ##############################################################################################################################
+  ### Settings
+  ##############################################################################################################################
+
+  /settings/sigLibrary:
+    get:
+      summary: Get the Addrees of the LibSignatures contract
+      operationId: getLibSigAddr
+      tags:
+        - settings
+      responses: 
+        '200':
+          description: The address
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Address'
+        '404':
+          description: Address not set
+          
+    post:
+      summary: Set the Address of the LibSignatures contract
+      operationId: setLibSigAddr
+      tags: 
+        - settings
+      requestBody:
+        content:
+          application/json:
+           schema:
+            $ref: '#/components/schemas/Address'
+      responses:
+        '200':
+          description: Address set
+        '405':
+          description: Invalid Input
+          
+          
+  /settings/VPC:
+    get:
+      summary: Get the Addrees of the VPC contract
+      operationId: getVPCAddr
+      tags:
+        - settings
+      responses: 
+        '200':
+          description: The address
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Address'
+        '404':
+          description: Address not set
+          
+    post:
+      summary: Set the Address of the VPC contract
+      operationId: setVPCAddr
+      tags: 
+        - settings
+      requestBody:
+        content:
+          application/json:
+           schema:
+            $ref: '#/components/schemas/Address'
+      responses:
+        '200':
+          description: Address set
+        '405':
+          description: Invalid Input
+  
+externalDocs:
+  description: Find out more about Perun
+  url: 'https://www.perun.network/'
+  
+components:
+  schemas:
+    # all uint256 encoded as string since json does not support long numbers
+    Address:
+      type: object
+      properties:
+        addr:
+          type: string
+          format: binary
+          description: A 40 Byte long ethereum address
+      required:
+        - addr
+          
+    Party:
+      type: object
+      properties:
+        id:
+          $ref: '#/components/schemas/Address'
+        cash:
+          type: string
+          format: uint256
+          description: The amount money of blocked in the channel
+        waitForInput:
+          type: boolean
+          description: Waiting for input from different party
+      required:
+        - id
+        - cash
+        - waitForInput
+    
+    # in the MSContract this corresponds to an address of the VPC contract
+    # however the API should return the VPC state when the stateRegister function is called
+    # and a channel state is registered with the VPC contract
+    VPC:
+      type: object
+      properties:
+        aliceCash:
+          type: string
+          format: uint256
+          description: Final distribution of alice's funds
+        bobCash:
+          type: string
+          format: uint256
+          description: Final distribution of bob's funds
+        stateId:
+          type: string
+          format: uint256
+          description: State id which was registered with the VPC contract
+        validity:
+          type: string
+          format: uint256
+          description: Validity timeout in which parties can register channel states
+        extendedValidity:
+          type: string
+          format: uint256
+          description: Final timeout to circumvent blocking the channel for ever
+        open:
+          type: boolean
+        waitingForAlice:
+          type: boolean
+        waitingForBob:
+          type: boolean
+      required:
+        - aliceCash
+        - bobCash
+        - stateId
+        - validity
+        - extendedValidity
+        - open
+        - waitingForAlice
+        - waitingForBob
+      
+    ChannelState:
+      type: object
+      properties:
+        stateId:
+          type: integer
+          format: uint
+        version:
+          type: string
+          format: uint256
+        aliceCash:
+          type: string
+          format: uint256
+        bobCash:
+          type: string
+          format: uint256
+        # when proposing a new state only the corresponding signature field needs to be filled
+        sigA:
+          type: string
+          format: binary
+        sigB:
+          type: string
+          format: binary
+      required:
+        - stateId
+        - version
+        - aliceCash
+        - bobCash
+        - sigA
+        - sigB
+          
+    InternalContract:
+      type: object
+      properties:
+        active:
+          type: boolean
+        VPC:
+          $ref: '#/components/schemas/VPC'
+        sid:
+          type: string
+          format: uint256
+          description: State id
+        blockedA:
+          type: string
+          format: uint256
+          description: Amount blocked by participant A
+        blockedB:
+          type: string
+          format: uint256
+          description: Amount blocked by participant B
+        version:
+          type: string
+          format: uint256
+          description: State version
+      required:
+        - active
+        - sid
+        - blockedA
+        - blockedB
+        - version
+          
+    Channel:
+      type: object
+      properties:
+        channelId:
+          type: string
+          format: uint256
+          description: ID of the created channel. (Concat both user addresses + counter)
+        alice:
+          $ref: '#/components/schemas/Party'
+        bob:
+          $ref: '#/components/schemas/Party'  
+        timeout:
+          type: string
+          format: uint256
+        InternalContr:
+          $ref: '#/components/schemas/InternalContract'
+        ChannelStatus:
+          type: string
+          enum:
+            - Init
+            - Open
+            - InConflict
+            - Settled
+            - WaitingToClose
+            - ReadyToClose
+        ChannelState: # initialy empty, return after first update
+          $ref: '#/components/schemas/ChannelState'
+      required:
+        - channelId
+        - alice
+        - bob
+        - timeout
+        - InternalContr
+        - ChannelStatus
+        
+            
+    NewChannel:
+      type: object
+      properties:
+        addrAlice:
+          $ref: '#/components/schemas/Address'
+        addrBob:
+          $ref: '#/components/schemas/Address'
+        timeout:
+          type: integer
+          format: uint
+          description: variable amount for timeout in minutes (e.g. 3 will result in a timeout of 3 minutes)
+      required:
+        - addrAlice
+        - addrBob
+        - timeout
+          
+    ChannelSubscription:
+      type: object
+      properties:
+        callbackUrl: # Callback URL
+          type: string
+          format: uri
+          example: https://localhost/send/callback/here
+        address: # address to watch
+          $ref: '#/components/schemas/Address'
+      required:
+        - callbackUrl
+        - address
+      
+  requestBodies:
+    Channel:
+      description: Channel parameter to be created
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/NewChannel'
+      required: true
+      
+    SubscribeToChannelUpdates:
+      description: Parameters for new channel webhook
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ChannelSubscription'
+      required: true
+      
+    ChannelUpdateCallback:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Channel'
+            required:
+              - Channel
+              
+    ConfirmChannel:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              amount:
+                type: string
+                format: uint256
+                description: Amount to block in the channel
+              channelUpdateUrl: # Callback URL
+                type: string
+                format: uri
+                example: https://localhost/send/callback/here
+              channelStateUpdateUrl: # Callback URL
+                type: string
+                format: uri
+                example: https://localhost/send/callback/here
+            required:
+              - amount
+              - callbackUrl
+              
+    StateRegisterForChannel:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ChannelState'
+            required:
+              - ChannelState
+              
+    ProposeStateRegisterForChannel:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ChannelState'
+            properties:
+              nonce:
+                type: integer
+                format: int64
+                description: Nonce used for this channel instance
+            required:
+              - ChannelState
+              - nonce
+            
+      
+  #securitySchemes:
+  #  petstore_auth:
+  #    type: oauth2
+  #    flows:
+  #      implicit:
+  #        authorizationUrl: 'http://petstore.swagger.io/oauth/dialog'
+  #        scopes:
+  #          'write:pets': modify pets in your account
+  #          'read:pets': read your pets
+  #  api_key:
+  #    type: apiKey
+  #    name: api_key
+  #    in: header
