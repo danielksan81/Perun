@@ -5,9 +5,6 @@ import "./LibSignatures.sol";
 contract VPC {
     event EventVpcClosing(bytes32 indexed _id);
     event EventVpcClosed(bytes32 indexed _id, uint cashAlice, uint cashBob);
-    event Debug(bytes32 hash);
-    event DebugU(uint msg);
-    event DebugS(string msg);
 
     // datatype for virtual state
     struct VpcState {

@@ -6,19 +6,32 @@ import "./common_types.proto";
 package Perun;
 
 service Perun {
+    // ==================================================================
+    // General
+    // ==================================================================
     // get all channels registered
     rpc getChannels() returns (ChannelResponse) {}
 
-    // create a new channel and receive updates for this channel
-    rpc createNewChannel(NewChannelRequest) returns (GenericResponse) {}
-
     // subscribe to updates for new channels created for my address
     // should return all allready registered channels first
+
+    // Subscribe to updates for newly created channels for this address 
+    // (i.e. newly created channels by a different party). This function
+    // should only return newly created channels.
     rpc receiveUpdates() returns (stream Channel) {}
+
+    rpc setLibSigAddress(Address) returns (GenericResponse) {}
+
+    rpc setVPCAddress(Address) returns (GenericResponse) {}
+
+    rpc setOwnAddress(Address) returns (GenericResponse) {}
 
     // ==================================================================
     // Setting Up MultiStateContract (MSContract) 
     // ==================================================================
+
+    // create a new MSContract
+    rpc createNewMSChannel(NewChannelRequest) returns (NewChannelResponse) {}
 
     // Confirms a channel to another party, this must happen before 
     // the timout of the channel is reached. 
@@ -27,7 +40,11 @@ service Perun {
     // should be submitted every time
     //
     // From here on out, ChannelId is assmued to correspond to the Multi State Channel
-    rpc confirmChannel(ChannelId) returns (stream Channel) {}
+    rpc confirmChannel(ChannelId, Amount) returns (stream Channel) {}
+
+    // This function is used when the stream created by confirmChannel is dropped for
+    // any reason. Must return all updates to this channel.
+    rpc subscribeToChannel(ChannelId) returns (stream Channel) {}
 
     // This funcion is used if only one party confirms a channel. Can only 
     // be called after the initial timeout is reached. Closes the update stream
@@ -40,12 +57,12 @@ service Perun {
 
     // This function is used to propose an initial state for a virtual payment contract 
     // (sid, blockedA, blockedB, version). Sid must be cryptographically sound randomly
-    // choosen (i.e. SHA3(addrAlice, addrBob, nonce)). The state must be signed by the participant.
+    // chosen (i.e. SHA3(addrAlice, addrBob, nonce)). The state must be signed by the participant.
     //
     // The corresponding party receives an update over their update channel generated in 
-    // the confirmCHannel call.
+    // the confirmChannel call.
     // 
-    // When the corresponding party responds in an appropriate time frame, succes is returned
+    // When the corresponding party responds in an appropriate time frame, success is returned
     rpc proposeVPC(ProposeInitialState) returns (ProposedVPCResponse) {}
 
     // Used for responding to an initial state proposal, reuse same messages, just also sign on
@@ -86,7 +103,7 @@ service Perun {
     // the same state.
     rpc closeVirtualChannel(ChannelId, ChannelState) returns (GenericResponse) {}
 
-    // After setteling the state with the VPC contract, delete the entire channel.
+    // After settling the state with the VPC contract, delete the entire channel.
     // This function calls the `execute` function of the MSContract.
     rpc executeCloseVirtualChannel(ChannelId) returns (GenericResponse) {}
 
@@ -103,14 +120,6 @@ service Perun {
     // the timeout ran out. This function calls the `close`functionallity of the MSContract.
     rpc finalizeCloseMSContract(ChannelId) returns (GenericResponse) {}
 
-    // ==================================================================
-    // Settings
-    // ==================================================================
-    rpc setLibSigAddress(Address) returns (GenericResponse) {}
-
-    rpc setVPCAddress(Address) returns (GenericResponse) {}
-
-    rpc setOwnAddress(Address) returns (GenericResponse) {}
 }
 
 // generic response for API calls
@@ -126,12 +135,15 @@ message NewChannelRequest {
     Address bob = 2;
 }
 
-// Response for getChannels, should return length = 0 if no channels
-// available
+message NewChannelResponse {
+    GenericResponse resp = 1;
+    Channel chan = 2;
+}
+
+// Response for getChannels
 message ChannelResponse {
     GenericResponse resp = 1;
-    uint64 length = 2;
-    repeated Channel channels = 3;
+    repeated Channel channels = 2;
 }
 
 // used as answer when the second party responded
